@@ -3,7 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken'); // For JWT
-const bcrypt = require('bcryptjs');
+const authRoutes = require('./auth'); // Authentication routes
 const authMiddleware = require('./middleware/auth'); // Middleware for protecting routes
 
 const app = express();
@@ -14,10 +14,13 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // MongoDB connection
-const mongoURI = 'mongodb://localhost:27017/todos';
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose
+  .connect('mongodb://localhost:27017/todos', { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Error connecting to MongoDB:', err));
+  .catch(err => {
+    console.error('Error connecting to MongoDB:', err);
+    process.exit(1); // Exit if connection fails
+  });
 
 // Define Schema and Model
 const todoSchema = new mongoose.Schema({
@@ -27,49 +30,10 @@ const todoSchema = new mongoose.Schema({
 
 const Todo = mongoose.model('Todo', todoSchema);
 
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-});
-
-const User = mongoose.model('User', userSchema);
-
-const SECRET_KEY = 'your_secret_key';
-
-// Routes
 // Authentication Routes
-app.post('/api/auth/register', async (req, res) => {
-  const { email, password } = req.body;
+app.use('/api/auth', authRoutes);
 
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ email, password: hashedPassword });
-
-    await user.save();
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error registering user', error: err.message });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const user = await User.findOne({ email });
-
-    if (user && (await bcrypt.compare(password, user.password))) {
-      const token = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: '1h' });
-      res.json({ token });
-    } else {
-      res.status(401).json({ message: 'Invalid credentials' });
-    }
-  } catch (err) {
-    res.status(500).json({ message: 'Error logging in', error: err.message });
-  }
-});
-
-// Protected Todo Routes
+// Get all todos with search, filter, and pagination (Protected)
 app.get('/api/todos', authMiddleware, async (req, res) => {
   try {
     const { search, completed, page = 1, limit = 10 } = req.query;
@@ -84,7 +48,7 @@ app.get('/api/todos', authMiddleware, async (req, res) => {
     }
 
     // Pagination
-    const skip = (page - 1) * limit;
+    const skip = (Math.max(page, 1) - 1) * Math.max(limit, 1);
 
     // Query database
     const todos = await Todo.find(filter).skip(skip).limit(parseInt(limit));
@@ -99,10 +63,11 @@ app.get('/api/todos', authMiddleware, async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching todos' });
+    res.status(500).json({ message: 'Error fetching todos', error: err.message });
   }
 });
 
+// Add a new todo (Protected)
 app.post('/api/todos', authMiddleware, async (req, res) => {
   try {
     const { title } = req.body;
@@ -113,10 +78,11 @@ app.post('/api/todos', authMiddleware, async (req, res) => {
     await newTodo.save();
     res.status(201).json(newTodo);
   } catch (err) {
-    res.status(500).json({ message: 'Error adding todo' });
+    res.status(500).json({ message: 'Error adding todo', error: err.message });
   }
 });
 
+// Update a todo (Protected)
 app.put('/api/todos/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -133,10 +99,11 @@ app.put('/api/todos/:id', authMiddleware, async (req, res) => {
     await todo.save();
     res.json(todo);
   } catch (err) {
-    res.status(500).json({ message: 'Error updating todo' });
+    res.status(500).json({ message: 'Error updating todo', error: err.message });
   }
 });
 
+// Delete a todo (Protected)
 app.delete('/api/todos/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -146,7 +113,7 @@ app.delete('/api/todos/:id', authMiddleware, async (req, res) => {
     }
     res.status(204).end();
   } catch (err) {
-    res.status(500).json({ message: 'Error deleting todo' });
+    res.status(500).json({ message: 'Error deleting todo', error: err.message });
   }
 });
 
